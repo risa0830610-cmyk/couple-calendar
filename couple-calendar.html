@@ -65,7 +65,7 @@
   .weekday:last-child { color: var(--me); }
   /* ── WEEK ROW ── */
   .week-row { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; margin-bottom: 3px; position: relative; }
-  .day-cell { height: 90px; min-width: 0; width: 100%; background: var(--surface); border-radius: 10px; padding: 4px 3px 4px; cursor: pointer; transition: background .15s; display: flex; flex-direction: column; align-items: center; gap: 0; overflow: hidden; position: relative; flex-shrink: 0; }
+  .day-cell { height: 108px; min-width: 0; width: 100%; background: var(--surface); border-radius: 10px; padding: 4px 3px 4px; cursor: pointer; transition: background .15s; display: flex; flex-direction: column; align-items: center; gap: 0; overflow: hidden; position: relative; flex-shrink: 0; }
   .day-cell:active { background: #f0eeff; }
   .day-cell.other-month { background: transparent; opacity: .35; }
   .day-cell.today .day-num { background: var(--me); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
@@ -733,7 +733,7 @@ function renderCalendar() {
         const left = startRect.left - rowRect.left + (actualStart === 0 ? 2 : -GAP/2);
         const right = rowRect.right - endRect.right + (barEnd === 6 ? 2 : -GAP/2);
         // バーはday-numの下、slot番目の位置に
-        const DAY_NUM_H = 28;
+        const DAY_NUM_H = 32;
         const BAR_H = 14;
         const BAR_GAP = 2;
         const top = DAY_NUM_H + slot * (BAR_H + BAR_GAP);
