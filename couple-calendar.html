@@ -64,7 +64,7 @@
   .weekday:first-child { color: #FF6B8A; }
   .weekday:last-child { color: var(--me); }
   .calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
-  .day-cell { min-height: 88px; background: var(--surface); border-radius: 10px; padding: 4px 3px 5px; cursor: pointer; transition: background .15s; display: flex; flex-direction: column; align-items: center; gap: 2px; overflow: hidden; }
+  .day-cell { min-height: 88px; background: var(--surface); border-radius: 10px; padding: 4px 3px 5px; cursor: pointer; transition: background .15s; display: flex; flex-direction: column; align-items: center; gap: 2px; overflow: hidden; position: relative; }
   .day-cell:active { background: #f0eeff; }
   .day-cell.other-month { background: transparent; opacity: .35; }
   .day-cell.today .day-num { background: var(--me); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
@@ -75,6 +75,7 @@
   .event-block { width: 100%; display: flex; flex-direction: column; gap: 1px; margin-top: 1px; }
   .event-bar-line { height: 3px; border-radius: 2px; width: 100%; }
   .event-label { font-size: 9px; font-weight: 500; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; line-height: 1.4; }
+  .more-badge { position: absolute; bottom: 3px; right: 4px; font-size: 9px; font-weight: 700; color: var(--text-muted); line-height: 1; }
 
   /* ── EVENT LIST ── */
   .event-list-section { padding: 0 16px calc(100px + var(--safe-bottom)); }
@@ -244,8 +245,11 @@
       <input class="form-input" id="ev-title" type="text" placeholder="例：ランチ、映画、病院…">
     </div>
     <div class="form-group">
-      <label class="form-label">日付</label>
-      <input class="form-input" id="ev-date" type="date">
+      <label class="form-label">開始日・終了日</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <input class="form-input" id="ev-date" type="date" onchange="onStartDateChange()">
+        <input class="form-input" id="ev-date-end" type="date">
+      </div>
     </div>
     <div class="form-group">
       <label class="form-label">開始時刻・終了時刻</label>
@@ -503,14 +507,16 @@ function listenEvents() {
 window.saveEvent = async function() {
   const title = $('ev-title').value.trim();
   const date = $('ev-date').value;
+  const dateEnd = $('ev-date-end').value || date;
   const time = $('ev-time').value;
   const timeEnd = $('ev-time-end').value;
   const note = $('ev-note').value.trim();
   if (!title) { alert('タイトルを入力してください'); return; }
   if (!date)  { alert('日付を選択してください'); return; }
+  if (dateEnd < date) { alert('終了日は開始日以降にしてください'); return; }
 
   const ev = {
-    title, date, time, timeEnd, note,
+    title, date, dateEnd, time, timeEnd, note,
     type: formType,
     who: formType === 'private' ? myRole : (formWho === 'me' ? myRole : formWho === 'partner' ? partnerRole : 'shared'),
     ownerRole: myRole,
@@ -588,7 +594,7 @@ function renderCalendar() {
     cell.appendChild(numEl);
 
     const dayEvents = Object.entries(events)
-      .filter(([,e]) => e.date === dateStr)
+      .filter(([,e]) => dateStr >= e.date && dateStr <= (e.dateEnd || e.date))
       .sort((a,b) => (a[1].time||'').localeCompare(b[1].time||''));
 
     dayEvents.slice(0,4).forEach(([,ev]) => {
@@ -605,6 +611,12 @@ function renderCalendar() {
       block.appendChild(lbl);
       cell.appendChild(block);
     });
+    if (dayEvents.length > 4) {
+      const more = document.createElement('div');
+      more.className = 'more-badge';
+      more.textContent = `+${dayEvents.length - 4}`;
+      cell.appendChild(more);
+    }
 
     cell.onclick = () => selectDate(dateStr);
     grid.appendChild(cell);
@@ -631,7 +643,7 @@ function renderEventList(dateStr) {
   list.innerHTML = '';
 
   const dayEvents = Object.entries(events)
-    .filter(([,e]) => e.date === dateStr)
+    .filter(([,e]) => dateStr >= e.date && dateStr <= (e.dateEnd || e.date))
     .sort((a,b) => (a[1].time||'').localeCompare(b[1].time||''));
 
   if (dayEvents.length === 0) {
@@ -672,7 +684,9 @@ function renderEventList(dateStr) {
 
     const meta = document.createElement('div');
     meta.className = 'event-meta';
-    let metaText = ev.time ? `🕐 ${ev.time}${ev.timeEnd?'〜'+ev.timeEnd:''}` : '終日';
+    const dateLabel = ev.dateEnd && ev.dateEnd !== ev.date
+      ? `📅 ${ev.date}〜${ev.dateEnd}　` : '';
+    let metaText = dateLabel + (ev.time ? `🕐 ${ev.time}${ev.timeEnd?'〜'+ev.timeEnd:''}` : '終日');
     if (ev.notifs && ev.notifs.length > 0) {
       const labels = ev.notifs.map(m => m>=1440?(m/1440)+'日前':m>=60?(m/60)+'時間前':m+'分前');
       metaText += ` • 🔔 ${labels.join(', ')}`;
@@ -707,6 +721,7 @@ window.openCreateModal = function() {
   $('modal-title').textContent = '新しい予定';
   $('ev-title').value = '';
   $('ev-date').value = selectedDate || formatDate(new Date());
+  $('ev-date-end').value = selectedDate || formatDate(new Date());
   $('ev-time').value = '';
   $('ev-time-end').value = '';
   $('ev-note').value = '';
@@ -725,6 +740,7 @@ window.openEditModal = function(id) {
   $('modal-title').textContent = '予定を編集';
   $('ev-title').value = ev.title;
   $('ev-date').value = ev.date;
+  $('ev-date-end').value = ev.dateEnd || ev.date;
   $('ev-time').value = ev.time || '';
   $('ev-time-end').value = ev.timeEnd || '';
   $('ev-note').value = ev.note || '';
@@ -801,6 +817,12 @@ function showToast(title, body, ev) {
 }
 
 // ── UTILS ──
+window.onStartDateChange = function() {
+  const start = $('ev-date').value;
+  const end = $('ev-date-end').value;
+  if (!end || end < start) $('ev-date-end').value = start;
+};
+
 function formatDate(d) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 }
