@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff">
+<title>ふたりのカレンダー</title>
+<style>
+  :root {
+    --me: #6C63FF; --me-light: #EEEDfe;
+    --partner: #FF6B8A; --partner-light: #FBEAF0;
+    --shared: #43C59E; --shared-light: #E1F5EE;
+    --bg: #F8F7FF; --surface: #ffffff;
+    --border: rgba(0,0,0,0.08);
+    --text: #1a1a2e; --text-muted: #6b6b8a;
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system,'Helvetica Neue',sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+
+  /* ── LOGIN ── */
+  .login-screen { position: fixed; inset: 0; background: var(--bg); z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px 28px; }
+  .login-screen.hidden { display: none; }
+  .login-logo { font-size: 56px; margin-bottom: 10px; }
+  .login-title { font-size: 24px; font-weight: 700; background: linear-gradient(135deg, var(--me), var(--partner)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; margin-bottom: 6px; }
+  .login-subtitle { font-size: 14px; color: var(--text-muted); margin-bottom: 32px; }
+  .login-card { background: var(--surface); border-radius: 20px; padding: 24px 20px; width: 100%; border: 1px solid var(--border); }
+  .login-error { font-size: 13px; color: var(--partner); text-align: center; min-height: 18px; margin-bottom: 10px; }
+  .login-btn { width: 100%; padding: 15px; border-radius: 14px; border: none; background: linear-gradient(135deg, var(--me), #9C88FF); color: white; font-size: 16px; font-weight: 700; cursor: pointer; font-family: -apple-system,sans-serif; margin-top: 4px; transition: transform .1s; }
+  .login-btn:active { transform: scale(.97); }
+  .login-note { font-size: 12px; color: var(--text-muted); text-align: center; margin-top: 18px; line-height: 1.7; }
+
+  /* ── LOADING ── */
+  .loading-screen { position: fixed; inset: 0; background: var(--bg); z-index: 2000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+  .loading-screen.hidden { display: none; }
+  .spinner { width: 40px; height: 40px; border: 3px solid var(--me-light); border-top-color: var(--me); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { font-size: 14px; color: var(--text-muted); }
+
+  /* ── HEADER ── */
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 16px 20px 12px; position: sticky; top: 0; z-index: 100; }
+  .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .app-title { font-size: 18px; font-weight: 700; background: linear-gradient(135deg, var(--me), var(--partner)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+  .header-user { font-size: 12px; color: var(--text-muted); font-weight: 600; }
+  .header-icons { display: flex; gap: 8px; }
+  .icon-btn { width: 36px; height: 36px; border-radius: 50%; border: none; background: var(--bg); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .icon-btn:active { background: #e0deff; }
+  .month-nav { display: flex; align-items: center; justify-content: space-between; }
+  .month-label { font-size: 17px; font-weight: 600; }
+  .nav-btn { width: 32px; height: 32px; border-radius: 50%; border: none; background: var(--bg); cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  .nav-btn:active { transform: scale(.92); }
+
+  /* ── LEGEND ── */
+  .legend { display: flex; gap: 14px; padding: 10px 20px; background: var(--surface); border-bottom: 1px solid var(--border); overflow-x: auto; }
+  .legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* ── CALENDAR ── */
+  .calendar-wrap { padding: 16px 12px; }
+  .weekdays { display: grid; grid-template-columns: repeat(7,1fr); text-align: center; margin-bottom: 6px; }
+  .weekday { font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
+  .weekday:first-child { color: #FF6B8A; }
+  .weekday:last-child { color: var(--me); }
+  .calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
+  .day-cell { min-height: 88px; background: var(--surface); border-radius: 10px; padding: 4px 3px 5px; cursor: pointer; transition: background .15s; display: flex; flex-direction: column; align-items: center; gap: 2px; overflow: hidden; }
+  .day-cell:active { background: #f0eeff; }
+  .day-cell.other-month { background: transparent; opacity: .35; }
+  .day-cell.today .day-num { background: var(--me); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
+  .day-cell.selected { background: #EEEDfe; }
+  .day-num { font-size: 13px; font-weight: 500; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
+  .sunday .day-num { color: #FF6B8A; }
+  .saturday .day-num { color: var(--me); }
+  .event-block { width: 100%; display: flex; flex-direction: column; gap: 1px; margin-top: 1px; }
+  .event-bar-line { height: 3px; border-radius: 2px; width: 100%; }
+  .event-label { font-size: 9px; font-weight: 500; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; line-height: 1.4; }
+
+  /* ── EVENT LIST ── */
+  .event-list-section { padding: 0 16px calc(100px + var(--safe-bottom)); }
+  .section-title { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; padding-left: 4px; }
+  .event-card { background: var(--surface); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; display: flex; align-items: center; gap: 14px; border: 1px solid var(--border); }
+  .event-color-bar { width: 4px; border-radius: 4px; align-self: stretch; min-height: 40px; }
+  .event-info { flex: 1; min-width: 0; }
+  .event-title-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .event-name { font-size: 15px; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .event-badge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+  .event-meta { font-size: 13px; color: var(--text-muted); }
+  .event-actions { display: flex; gap: 6px; }
+  .event-edit-btn { width: 30px; height: 30px; border-radius: 50%; border: none; background: #EEEDFE; color: var(--me); cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center; }
+  .empty-state { text-align: center; padding: 30px 0; color: var(--text-muted); font-size: 14px; }
+
+  /* ── FAB ── */
+  .fab { position: fixed; bottom: calc(24px + var(--safe-bottom)); right: 20px; width: 58px; height: 58px; border-radius: 50%; background: linear-gradient(135deg, var(--me), #9C88FF); color: white; font-size: 26px; border: none; box-shadow: 0 4px 20px rgba(108,99,255,.4); cursor: pointer; display: flex; align-items: center; justify-content: center; z-index: 200; transition: transform .15s; }
+  .fab:active { transform: scale(.93); }
+
+  /* ── MODAL ── */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 300; display: none; align-items: flex-end; justify-content: center; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--surface); border-radius: 24px 24px 0 0; padding: 24px 20px calc(24px + var(--safe-bottom)); width: 100%; max-height: 92vh; overflow-y: auto; animation: slideUp .25s ease; }
+  @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .modal-handle { width: 40px; height: 4px; background: var(--border); border-radius: 2px; margin: 0 auto 20px; }
+  .modal-title { font-size: 18px; font-weight: 700; margin-bottom: 20px; color: var(--text); }
+  .form-group { margin-bottom: 18px; }
+  .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; display: block; }
+  .form-input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1.5px solid var(--border); font-size: 15px; background: var(--bg); color: var(--text); outline: none; font-family: -apple-system,sans-serif; transition: border-color .15s; }
+  .form-input:focus { border-color: var(--me); }
+  .toggle-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .toggle-btn { padding: 12px 8px; border-radius: 12px; border: 2px solid var(--border); background: var(--bg); font-size: 13px; font-weight: 600; cursor: pointer; text-align: center; transition: all .15s; color: var(--text-muted); }
+  .toggle-btn.active-me { border-color: var(--me); background: var(--me-light); color: var(--me); }
+  .toggle-btn.active-shared { border-color: var(--shared); background: var(--shared-light); color: #0F6E56; }
+  .vis-row { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; }
+  .vis-btn { padding: 10px 4px; border-radius: 12px; border: 2px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 600; cursor: pointer; text-align: center; transition: all .15s; color: var(--text-muted); }
+  .vis-btn.active-me { border-color: var(--me); background: var(--me-light); color: var(--me); }
+  .vis-btn.active-partner { border-color: var(--partner); background: var(--partner-light); color: #993556; }
+  .vis-btn.active-shared { border-color: var(--shared); background: var(--shared-light); color: #0F6E56; }
+  .notif-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 6px; }
+  .notif-btn { padding: 10px 4px; border-radius: 10px; border: 1.5px solid var(--border); background: var(--bg); font-size: 12px; font-weight: 500; cursor: pointer; text-align: center; color: var(--text-muted); transition: all .15s; }
+  .notif-btn.selected { border-color: var(--me); background: var(--me-light); color: var(--me); }
+  .submit-btn { width: 100%; padding: 16px; border-radius: 16px; border: none; background: linear-gradient(135deg, var(--me), #9C88FF); color: white; font-size: 16px; font-weight: 700; cursor: pointer; margin-top: 8px; transition: transform .1s; font-family: -apple-system,sans-serif; }
+  .submit-btn:active { transform: scale(.97); }
+  .cancel-btn { width: 100%; padding: 14px; border-radius: 16px; border: none; background: transparent; color: var(--text-muted); font-size: 15px; cursor: pointer; margin-top: 8px; font-family: -apple-system,sans-serif; }
+  .delete-event-btn { width: 100%; padding: 14px; border-radius: 16px; border: 1.5px solid var(--partner); background: transparent; color: var(--partner); font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 4px; font-family: -apple-system,sans-serif; transition: background .15s; }
+  .delete-event-btn:active { background: var(--partner-light); }
+
+  /* ── CONFIRM ── */
+  .confirm-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 600; display: none; align-items: center; justify-content: center; padding: 24px; }
+  .confirm-overlay.open { display: flex; }
+  .confirm-dialog { background: var(--surface); border-radius: 20px; padding: 28px 24px 20px; width: 100%; max-width: 320px; text-align: center; }
+  .confirm-icon { font-size: 36px; margin-bottom: 12px; }
+  .confirm-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
+  .confirm-body { font-size: 14px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; }
+  .confirm-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .confirm-cancel { padding: 13px; border-radius: 12px; border: 1.5px solid var(--border); background: var(--bg); font-size: 15px; font-weight: 600; color: var(--text-muted); cursor: pointer; font-family: -apple-system,sans-serif; }
+  .confirm-delete { padding: 13px; border-radius: 12px; border: none; background: var(--partner); font-size: 15px; font-weight: 700; color: white; cursor: pointer; font-family: -apple-system,sans-serif; }
+  .confirm-delete:active { opacity: .8; }
+
+  /* ── SETTINGS ── */
+  .settings-user-info { background: var(--bg); border-radius: 14px; padding: 14px 16px; margin-bottom: 18px; display: flex; align-items: center; gap: 12px; }
+  .settings-avatar { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .settings-user-name { font-size: 15px; font-weight: 700; color: var(--text); }
+  .settings-user-email { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .logout-btn { width: 100%; padding: 14px; border-radius: 16px; border: 1.5px solid var(--partner); background: transparent; color: var(--partner); font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 4px; font-family: -apple-system,sans-serif; }
+
+  /* ── TOAST ── */
+  .toast { position: fixed; top: -120px; left: 12px; right: 12px; background: var(--text); color: white; border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; z-index: 500; box-shadow: 0 8px 30px rgba(0,0,0,.25); transition: top .35s cubic-bezier(.34,1.56,.64,1); }
+  .toast.show { top: 50px; }
+  .toast-icon { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; flex-shrink: 0; }
+  .toast-content { flex: 1; }
+  .toast-app { font-size: 11px; font-weight: 600; opacity: .65; margin-bottom: 2px; }
+  .toast-title { font-size: 14px; font-weight: 600; }
+  .toast-body { font-size: 12px; opacity: .8; }
+</style>
+</head>
+<body>
+
+<!-- LOADING -->
+<div class="loading-screen" id="loading-screen">
+  <div class="spinner"></div>
+  <div class="loading-text">読み込み中…</div>
+</div>
+
+<!-- LOGIN -->
+<div class="login-screen hidden" id="login-screen">
+  <div class="login-logo">💑</div>
+  <div class="login-title">ふたりのカレンダー</div>
+  <div class="login-subtitle">2人だけのプライベートカレンダー</div>
+  <div class="login-card">
+    <div class="form-group">
+      <label class="form-label">メールアドレス</label>
+      <input class="form-input" id="login-email" type="email" placeholder="例：sakura@couple.com" autocomplete="email" autocapitalize="none">
+    </div>
+    <div class="form-group" style="margin-bottom:8px">
+      <label class="form-label">パスワード</label>
+      <input class="form-input" id="login-pw" type="password" placeholder="パスワードを入力" autocomplete="current-password">
+    </div>
+    <div class="login-error" id="login-error"></div>
+    <button class="login-btn" onclick="doLogin()">ログイン</button>
+  </div>
+  <p class="login-note">Firebaseで登録したメールアドレスと<br>パスワードでログインしてください</p>
+</div>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <div class="toast-icon" id="toast-icon">📅</div>
+  <div class="toast-content">
+    <div class="toast-app">ふたりのカレンダー</div>
+    <div class="toast-title" id="toast-title"></div>
+    <div class="toast-body" id="toast-body"></div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<div class="header" id="main-header" style="display:none">
+  <div class="header-top">
+    <div>
+      <div class="app-title">💑 ふたりのカレンダー</div>
+      <div class="header-user" id="header-user"></div>
+    </div>
+    <div class="header-icons">
+      <button class="icon-btn" onclick="testNotification()">🔔</button>
+      <button class="icon-btn" onclick="toggleSettings()">⚙️</button>
+    </div>
+  </div>
+  <div class="month-nav">
+    <button class="nav-btn" onclick="changeMonth(-1)">‹</button>
+    <div class="month-label" id="month-label"></div>
+    <button class="nav-btn" onclick="changeMonth(1)">›</button>
+  </div>
+</div>
+
+<!-- LEGEND -->
+<div class="legend" id="main-legend" style="display:none">
+  <div class="legend-item"><div class="legend-dot" style="background:var(--me)"></div><span id="legend-me">自分の予定</span></div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--partner)"></div><span id="legend-partner">相手の予定</span></div>
+  <div class="legend-item"><div class="legend-dot" style="background:var(--shared)"></div><span>共有予定</span></div>
+</div>
+
+<!-- CALENDAR -->
+<div class="calendar-wrap" id="main-calendar" style="display:none">
+  <div class="weekdays">
+    <div class="weekday">日</div><div class="weekday">月</div><div class="weekday">火</div>
+    <div class="weekday">水</div><div class="weekday">木</div><div class="weekday">金</div><div class="weekday">土</div>
+  </div>
+  <div class="calendar-grid" id="calendar-grid"></div>
+</div>
+
+<!-- EVENT LIST -->
+<div class="event-list-section" id="main-eventlist" style="display:none">
+  <div class="section-title" id="selected-date-label">選択した日の予定</div>
+  <div id="event-list"></div>
+</div>
+
+<!-- FAB -->
+<button class="fab" id="main-fab" style="display:none" onclick="openCreateModal()">+</button>
+
+<!-- CREATE/EDIT MODAL -->
+<div class="overlay" id="create-overlay" onclick="closeOverlayIfBg(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modal-title">新しい予定</div>
+    <div class="form-group">
+      <label class="form-label">タイトル</label>
+      <input class="form-input" id="ev-title" type="text" placeholder="例：ランチ、映画、病院…">
+    </div>
+    <div class="form-group">
+      <label class="form-label">日付</label>
+      <input class="form-input" id="ev-date" type="date">
+    </div>
+    <div class="form-group">
+      <label class="form-label">開始時刻・終了時刻</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <input class="form-input" id="ev-time" type="time">
+        <input class="form-input" id="ev-time-end" type="time">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">公開設定</label>
+      <div class="toggle-row">
+        <button class="toggle-btn active-shared" id="toggle-shared" onclick="setType('shared')">💑 夫婦共有</button>
+        <button class="toggle-btn" id="toggle-private" onclick="setType('private')">🔒 自分のみ</button>
+      </div>
+    </div>
+    <div class="form-group" id="who-field">
+      <label class="form-label">誰の予定？</label>
+      <div class="vis-row">
+        <button class="vis-btn active-me" id="vis-me" onclick="setWho('me')">👤 <span id="vis-name-me">自分</span></button>
+        <button class="vis-btn" id="vis-partner" onclick="setWho('partner')">👤 <span id="vis-name-partner">相手</span></button>
+        <button class="vis-btn" id="vis-shared-who" onclick="setWho('shared')">💑 二人</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">🔔 リマインダー（複数選択可）</label>
+      <div class="notif-grid">
+        <button class="notif-btn" data-mins="10" onclick="toggleNotif(this,10)">10分前</button>
+        <button class="notif-btn" data-mins="30" onclick="toggleNotif(this,30)">30分前</button>
+        <button class="notif-btn" data-mins="60" onclick="toggleNotif(this,60)">1時間前</button>
+        <button class="notif-btn" data-mins="120" onclick="toggleNotif(this,120)">2時間前</button>
+        <button class="notif-btn" data-mins="1440" onclick="toggleNotif(this,1440)">前日</button>
+        <button class="notif-btn" data-mins="4320" onclick="toggleNotif(this,4320)">3日前</button>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">メモ（任意）</label>
+      <textarea class="form-input" id="ev-note" rows="2" placeholder="場所や持ち物など…" style="resize:none"></textarea>
+    </div>
+    <button class="submit-btn" onclick="saveEvent()">保存する</button>
+    <button class="cancel-btn" onclick="closeCreate()">キャンセル</button>
+    <button class="delete-event-btn" id="modal-delete-btn" onclick="deleteFromModal()" style="display:none">🗑 この予定を削除する</button>
+  </div>
+</div>
+
+<!-- CONFIRM DELETE -->
+<div class="confirm-overlay" id="confirm-overlay">
+  <div class="confirm-dialog">
+    <div class="confirm-icon">🗑️</div>
+    <div class="confirm-title">予定を削除しますか？</div>
+    <div class="confirm-body" id="confirm-body"></div>
+    <div class="confirm-btns">
+      <button class="confirm-cancel" onclick="closeConfirm()">キャンセル</button>
+      <button class="confirm-delete" onclick="confirmDelete()">削除する</button>
+    </div>
+  </div>
+</div>
+
+<!-- SETTINGS MODAL -->
+<div class="overlay" id="settings-overlay" onclick="closeSettingsIfBg(event)">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <div class="modal-title">⚙️ 設定</div>
+    <div class="settings-user-info">
+      <div class="settings-avatar" id="settings-avatar" style="background:var(--me-light)">👤</div>
+      <div>
+        <div class="settings-user-name" id="settings-user-name"></div>
+        <div class="settings-user-email" id="settings-user-email"></div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">表示名（カレンダー上の名前）</label>
+      <input class="form-input" id="setting-displayname" type="text" placeholder="例：さくら">
+    </div>
+    <div class="form-group">
+      <label class="form-label">通知のテスト</label>
+      <p style="font-size:13px;color:var(--text-muted)">🔔ボタンで通知のプレビューを確認できます。</p>
+    </div>
+    <button class="submit-btn" onclick="saveDisplayName()">表示名を保存</button>
+    <button class="cancel-btn" onclick="closeSettings()">閉じる</button>
+    <button class="logout-btn" onclick="doLogout()">ログアウト</button>
+  </div>
+</div>
+
+<!-- Firebase SDKs -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, set, push, remove, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+// ── Firebase 初期化 ──
+const firebaseConfig = {
+  apiKey: "AIzaSyAxddJ4FpatbZ5Fj_on5QK5VEkaXBljXW4",
+  authDomain: "futari-calendar-4bc43.firebaseapp.com",
+  databaseURL: "https://futari-calendar-4bc43-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "futari-calendar-4bc43",
+  storageBucket: "futari-calendar-4bc43.firebasestorage.app",
+  messagingSenderId: "1064389123516",
+  appId: "1:1064389123516:web:e3ce97219cf31aee8f1fb9"
+};
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+// ── STATE ──
+let currentUser = null;       // Firebase Userオブジェクト
+let myRole = null;            // 'userA' | 'userB'（DB上のキー）
+let partnerRole = null;
+let myDisplayName = '';
+let partnerDisplayName = '';
+let events = {};              // { eventId: eventData }
+let currentDate = new Date();
+let selectedDate = null;
+let editingId = null;
+let formType = 'shared';
+let formWho = 'me';
+let selectedNotifs = [];
+let notifTimers = [];
+let pendingDeleteId = null;
+let eventsListener = null;
+
+// ── DOM HELPERS ──
+const $ = id => document.getElementById(id);
+function showMain() {
+  $('main-header').style.display = '';
+  $('main-legend').style.display = '';
+  $('main-calendar').style.display = '';
+  $('main-eventlist').style.display = '';
+  $('main-fab').style.display = '';
+}
+function hideMain() {
+  $('main-header').style.display = 'none';
+  $('main-legend').style.display = 'none';
+  $('main-calendar').style.display = 'none';
+  $('main-eventlist').style.display = 'none';
+  $('main-fab').style.display = 'none';
+}
+
+// ── AUTH STATE ──
+onAuthStateChanged(auth, async user => {
+  $('loading-screen').classList.add('hidden');
+  if (user) {
+    currentUser = user;
+    await loadUserRole(user);
+    $('login-screen').classList.add('hidden');
+    showMain();
+    applyUserUI();
+    listenEvents();
+    selectedDate = formatDate(new Date());
+    renderCalendar();
+  } else {
+    currentUser = null;
+    myRole = null;
+    if (eventsListener) { off(ref(db, 'events')); eventsListener = null; }
+    hideMain();
+    $('login-screen').classList.remove('hidden');
+  }
+});
+
+// ── USER ROLE 判定 ──
+// DB の /users/{uid}/role に 'userA' or 'userB' を保存
+async function loadUserRole(user) {
+  return new Promise(resolve => {
+    const userRef = ref(db, `users/${user.uid}`);
+    onValue(userRef, snap => {
+      const data = snap.val();
+      if (data && data.role) {
+        myRole = data.role;
+        partnerRole = myRole === 'userA' ? 'userB' : 'userA';
+        myDisplayName = data.displayName || user.email.split('@')[0];
+      } else {
+        // 初回ログイン：既存ユーザー数を確認してrole割り当て
+        onValue(ref(db, 'users'), allSnap => {
+          const all = allSnap.val() || {};
+          const roles = Object.values(all).map(u => u.role).filter(Boolean);
+          myRole = roles.includes('userA') ? 'userB' : 'userA';
+          partnerRole = myRole === 'userA' ? 'userB' : 'userA';
+          myDisplayName = user.email.split('@')[0];
+          set(ref(db, `users/${user.uid}`), { role: myRole, displayName: myDisplayName, email: user.email });
+          off(ref(db, 'users'));
+          resolve();
+        }, { onlyOnce: true });
+        return;
+      }
+      resolve();
+    }, { onlyOnce: true });
+
+    // パートナーの表示名も取得
+    onValue(ref(db, 'users'), allSnap => {
+      const all = allSnap.val() || {};
+      Object.values(all).forEach(u => {
+        if (u.role === partnerRole) partnerDisplayName = u.displayName || '相手';
+      });
+      applyUserUI();
+    });
+  });
+}
+
+function applyUserUI() {
+  $('header-user').textContent = `ログイン中：${myDisplayName}`;
+  $('legend-me').textContent = myDisplayName + 'の予定';
+  $('legend-partner').textContent = (partnerDisplayName || '相手') + 'の予定';
+  $('vis-name-me').textContent = myDisplayName;
+  $('vis-name-partner').textContent = partnerDisplayName || '相手';
+  $('settings-user-name').textContent = myDisplayName;
+  $('settings-user-email').textContent = currentUser ? currentUser.email : '';
+  $('settings-avatar').style.background = myRole === 'userA' ? 'var(--me-light)' : 'var(--partner-light)';
+  $('settings-avatar').textContent = myRole === 'userA' ? '👤' : '👤';
+}
+
+// ── LOGIN / LOGOUT ──
+window.doLogin = async function() {
+  const email = $('login-email').value.trim();
+  const pw = $('login-pw').value;
+  const errEl = $('login-error');
+  errEl.textContent = '';
+  if (!email || !pw) { errEl.textContent = 'メールアドレスとパスワードを入力してください'; return; }
+  try {
+    await signInWithEmailAndPassword(auth, email, pw);
+    $('login-pw').value = '';
+  } catch(e) {
+    const msgs = { 'auth/invalid-credential':'メールアドレスまたはパスワードが違います', 'auth/user-not-found':'ユーザーが見つかりません', 'auth/wrong-password':'パスワードが違います', 'auth/invalid-email':'メールアドレスの形式が正しくありません', 'auth/too-many-requests':'試行回数が多すぎます。しばらく待ってから再度お試しください' };
+    errEl.textContent = msgs[e.code] || 'ログインに失敗しました：' + e.message;
+  }
+};
+
+window.doLogout = async function() {
+  events = {};
+  await signOut(auth);
+  closeSettings();
+};
+
+// ── REALTIME EVENTS ──
+function listenEvents() {
+  if (eventsListener) off(ref(db, 'events'));
+  const evRef = ref(db, 'events');
+  onValue(evRef, snap => {
+    const raw = snap.val() || {};
+    // フィルタリング：「自分のみ」は自分だけ見える
+    events = {};
+    Object.entries(raw).forEach(([id, ev]) => {
+      if (ev.type === 'private') {
+        // 作成者のroleと自分のroleが一致する場合のみ表示
+        if (ev.ownerRole === myRole) events[id] = ev;
+      } else {
+        events[id] = ev;
+      }
+    });
+    renderCalendar();
+    if (selectedDate) renderEventList(selectedDate);
+  });
+  eventsListener = true;
+}
+
+// ── SAVE / DELETE EVENT ──
+window.saveEvent = async function() {
+  const title = $('ev-title').value.trim();
+  const date = $('ev-date').value;
+  const time = $('ev-time').value;
+  const timeEnd = $('ev-time-end').value;
+  const note = $('ev-note').value.trim();
+  if (!title) { alert('タイトルを入力してください'); return; }
+  if (!date)  { alert('日付を選択してください'); return; }
+
+  const ev = {
+    title, date, time, timeEnd, note,
+    type: formType,
+    who: formType === 'private' ? myRole : (formWho === 'me' ? myRole : formWho === 'partner' ? partnerRole : 'shared'),
+    ownerRole: myRole,
+    notifs: [...selectedNotifs],
+    updatedAt: Date.now(),
+  };
+
+  try {
+    if (editingId) {
+      await set(ref(db, `events/${editingId}`), ev);
+    } else {
+      await push(ref(db, 'events'), ev);
+    }
+    closeCreate();
+  } catch(e) { alert('保存に失敗しました：' + e.message); }
+};
+
+window.confirmDelete = async function() {
+  if (!pendingDeleteId) return;
+  const id = pendingDeleteId;
+  pendingDeleteId = null;
+  closeConfirm();
+  if (editingId === id) { editingId = null; closeCreate(); }
+  try { await remove(ref(db, `events/${id}`)); } catch(e) { alert('削除に失敗しました'); }
+};
+
+// ── DISPLAY NAME 保存 ──
+window.saveDisplayName = async function() {
+  const name = $('setting-displayname').value.trim();
+  if (!name) return;
+  myDisplayName = name;
+  await set(ref(db, `users/${currentUser.uid}/displayName`), name);
+  applyUserUI();
+  closeSettings();
+};
+
+// ── CALENDAR ──
+window.changeMonth = function(dir) {
+  currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + dir, 1);
+  renderCalendar();
+};
+
+function renderCalendar() {
+  const year = currentDate.getFullYear();
+  const month = currentDate.getMonth();
+  const today = new Date();
+  $('month-label').textContent = `${year}年${month+1}月`;
+
+  const grid = $('calendar-grid');
+  grid.innerHTML = '';
+
+  const firstDay = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month+1, 0).getDate();
+  const daysInPrev = new Date(year, month, 0).getDate();
+  const cells = [];
+
+  for (let i = firstDay-1; i >= 0; i--)
+    cells.push({ day: daysInPrev-i, m: month-1, y: month===0?year-1:year, other: true });
+  for (let d = 1; d <= daysInMonth; d++)
+    cells.push({ day: d, m: month, y: year, other: false });
+  const rem = 7 - (cells.length % 7);
+  if (rem < 7) for (let i = 1; i <= rem; i++)
+    cells.push({ day: i, m: month+1, y: month===11?year+1:year, other: true });
+
+  cells.forEach(({ day, m, y, other }) => {
+    const cell = document.createElement('div');
+    const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+    const isToday = !other && day===today.getDate() && m===today.getMonth() && y===today.getFullYear();
+    const dow = new Date(y, m, day).getDay();
+    cell.className = 'day-cell' + (other?' other-month':'') + (isToday?' today':'') + (selectedDate===dateStr?' selected':'') + (dow===0?' sunday':dow===6?' saturday':'');
+
+    const numEl = document.createElement('div');
+    numEl.className = 'day-num';
+    numEl.textContent = day;
+    cell.appendChild(numEl);
+
+    const dayEvents = Object.entries(events)
+      .filter(([,e]) => e.date === dateStr)
+      .sort((a,b) => (a[1].time||'').localeCompare(b[1].time||''));
+
+    dayEvents.slice(0,4).forEach(([,ev]) => {
+      const block = document.createElement('div');
+      block.className = 'event-block';
+      const bar = document.createElement('div');
+      bar.className = 'event-bar-line';
+      bar.style.background = colorFor(ev);
+      const lbl = document.createElement('div');
+      lbl.className = 'event-label';
+      lbl.style.color = colorFor(ev);
+      lbl.textContent = (ev.time ? ev.time+' ' : '') + ev.title;
+      block.appendChild(bar);
+      block.appendChild(lbl);
+      cell.appendChild(block);
+    });
+
+    cell.onclick = () => selectDate(dateStr);
+    grid.appendChild(cell);
+  });
+}
+
+function selectDate(dateStr) {
+  selectedDate = dateStr;
+  renderCalendar();
+  renderEventList(dateStr);
+}
+
+function colorFor(ev) {
+  if (ev.who === 'shared') return 'var(--shared)';
+  if (ev.who === partnerRole) return 'var(--partner)';
+  return 'var(--me)';
+}
+
+// ── EVENT LIST ──
+function renderEventList(dateStr) {
+  const parts = dateStr.split('-');
+  $('selected-date-label').textContent = `${parseInt(parts[1])}月${parseInt(parts[2])}日の予定`;
+  const list = $('event-list');
+  list.innerHTML = '';
+
+  const dayEvents = Object.entries(events)
+    .filter(([,e]) => e.date === dateStr)
+    .sort((a,b) => (a[1].time||'').localeCompare(b[1].time||''));
+
+  if (dayEvents.length === 0) {
+    list.innerHTML = '<div class="empty-state">この日の予定はありません<br><small>右下の＋ボタンで追加できます</small></div>';
+    return;
+  }
+
+  dayEvents.forEach(([id, ev]) => {
+    const card = document.createElement('div');
+    card.className = 'event-card';
+
+    const bar = document.createElement('div');
+    bar.className = 'event-color-bar';
+    bar.style.background = colorFor(ev);
+
+    const info = document.createElement('div');
+    info.className = 'event-info';
+
+    const titleRow = document.createElement('div');
+    titleRow.className = 'event-title-row';
+    const name = document.createElement('div');
+    name.className = 'event-name';
+    name.textContent = ev.title;
+
+    const badge = document.createElement('div');
+    badge.className = 'event-badge';
+    if (ev.who === 'shared') {
+      badge.textContent = '💑 共有'; badge.style.background='#E1F5EE'; badge.style.color='#0F6E56';
+    } else if (ev.who === partnerRole) {
+      badge.textContent = '👤 '+(partnerDisplayName||'相手'); badge.style.background='#FBEAF0'; badge.style.color='#993556';
+    } else {
+      badge.textContent = '👤 '+myDisplayName; badge.style.background='#EEEDFE'; badge.style.color='#6C63FF';
+    }
+    if (ev.type === 'private') { badge.textContent += ' 🔒'; }
+
+    titleRow.appendChild(name);
+    titleRow.appendChild(badge);
+
+    const meta = document.createElement('div');
+    meta.className = 'event-meta';
+    let metaText = ev.time ? `🕐 ${ev.time}${ev.timeEnd?'〜'+ev.timeEnd:''}` : '終日';
+    if (ev.notifs && ev.notifs.length > 0) {
+      const labels = ev.notifs.map(m => m>=1440?(m/1440)+'日前':m>=60?(m/60)+'時間前':m+'分前');
+      metaText += ` • 🔔 ${labels.join(', ')}`;
+    }
+    if (ev.note) metaText += ` • ${ev.note}`;
+    meta.textContent = metaText;
+
+    info.appendChild(titleRow);
+    info.appendChild(meta);
+
+    const actions = document.createElement('div');
+    actions.className = 'event-actions';
+    // 自分が作成した予定のみ編集可能
+    if (ev.ownerRole === myRole) {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'event-edit-btn';
+      editBtn.textContent = '✏️';
+      editBtn.onclick = (e) => { e.stopPropagation(); openEditModal(id); };
+      actions.appendChild(editBtn);
+    }
+
+    card.appendChild(bar);
+    card.appendChild(info);
+    card.appendChild(actions);
+    list.appendChild(card);
+  });
+}
+
+// ── FORM ──
+window.openCreateModal = function() {
+  editingId = null;
+  $('modal-title').textContent = '新しい予定';
+  $('ev-title').value = '';
+  $('ev-date').value = selectedDate || formatDate(new Date());
+  $('ev-time').value = '';
+  $('ev-time-end').value = '';
+  $('ev-note').value = '';
+  selectedNotifs = [];
+  document.querySelectorAll('.notif-btn').forEach(b => b.classList.remove('selected'));
+  setType('shared');
+  setWho('me');
+  $('modal-delete-btn').style.display = 'none';
+  $('create-overlay').classList.add('open');
+};
+
+window.openEditModal = function(id) {
+  const ev = events[id];
+  if (!ev) return;
+  editingId = id;
+  $('modal-title').textContent = '予定を編集';
+  $('ev-title').value = ev.title;
+  $('ev-date').value = ev.date;
+  $('ev-time').value = ev.time || '';
+  $('ev-time-end').value = ev.timeEnd || '';
+  $('ev-note').value = ev.note || '';
+  selectedNotifs = ev.notifs ? [...ev.notifs] : [];
+  document.querySelectorAll('.notif-btn').forEach(b => {
+    b.classList.toggle('selected', selectedNotifs.includes(parseInt(b.getAttribute('data-mins'))));
+  });
+  setType(ev.type || 'shared');
+  if (ev.who === 'shared') setWho('shared');
+  else if (ev.who === partnerRole) setWho('partner');
+  else setWho('me');
+  $('modal-delete-btn').style.display = 'block';
+  $('create-overlay').classList.add('open');
+};
+
+window.setType = function(type) {
+  formType = type;
+  $('toggle-shared').className = 'toggle-btn'+(type==='shared'?' active-shared':'');
+  $('toggle-private').className = 'toggle-btn'+(type==='private'?' active-me':'');
+  $('who-field').style.display = type==='private'?'none':'block';
+};
+
+window.setWho = function(who) {
+  formWho = who;
+  ['me','partner','shared-who'].forEach(k => {
+    const el = $('vis-'+k);
+    el.className = 'vis-btn';
+    if (k==='me'&&who==='me') el.classList.add('active-me');
+    if (k==='partner'&&who==='partner') el.classList.add('active-partner');
+    if (k==='shared-who'&&who==='shared') el.classList.add('active-shared');
+  });
+};
+
+window.toggleNotif = function(btn, minutes) {
+  const idx = selectedNotifs.indexOf(minutes);
+  if (idx===-1) { selectedNotifs.push(minutes); btn.classList.add('selected'); }
+  else { selectedNotifs.splice(idx,1); btn.classList.remove('selected'); }
+};
+
+window.deleteFromModal = function() {
+  if (!editingId) return;
+  const ev = events[editingId];
+  $('confirm-body').textContent = `「${ev?ev.title:'この予定'}」を削除します。この操作は元に戻せません。`;
+  pendingDeleteId = editingId;
+  $('confirm-overlay').classList.add('open');
+};
+
+window.closeCreate = function() { $('create-overlay').classList.remove('open'); };
+window.closeOverlayIfBg = function(e) { if(e.target.id==='create-overlay') closeCreate(); };
+window.closeConfirm = function() { pendingDeleteId=null; $('confirm-overlay').classList.remove('open'); };
+
+window.toggleSettings = function() {
+  $('setting-displayname').value = myDisplayName;
+  $('settings-overlay').classList.add('open');
+};
+window.closeSettings = function() { $('settings-overlay').classList.remove('open'); };
+window.closeSettingsIfBg = function(e) { if(e.target.id==='settings-overlay') closeSettings(); };
+
+// ── NOTIFICATIONS ──
+window.testNotification = function() {
+  showToast('テスト通知', '「テスト予定」は10分後に始まります', { who: 'shared' });
+};
+
+function showToast(title, body, ev) {
+  $('toast-title').textContent = title;
+  $('toast-body').textContent = body;
+  const icon = $('toast-icon');
+  if (ev.who==='shared') { icon.style.background='#E1F5EE'; icon.textContent='💑'; }
+  else if (ev.who===partnerRole) { icon.style.background='#FBEAF0'; icon.textContent='💕'; }
+  else { icon.style.background='#EEEDFE'; icon.textContent='📅'; }
+  const toast = $('toast');
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// ── UTILS ──
+function formatDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+</script>
+</body>
+</html>
