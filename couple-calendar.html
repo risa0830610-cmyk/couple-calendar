@@ -672,7 +672,7 @@ function renderCalendar() {
         const lbl = document.createElement('div');
         lbl.className = 'event-label';
         lbl.style.color = colorFor(ev);
-        lbl.textContent = (ev.time ? ev.time+' ' : '') + ev.title;
+        lbl.textContent = ev.title;
         block.appendChild(bar);
         block.appendChild(lbl);
         cell.appendChild(block);
@@ -754,7 +754,7 @@ function renderCalendar() {
         if (isStart || actualStart === 0) {
           const lbl = document.createElement('span');
           lbl.className = 'multi-bar-label';
-          lbl.textContent = (ev.time ? ev.time+' ' : '') + ev.title;
+          lbl.textContent = ev.title;
           bar.appendChild(lbl);
         }
 
