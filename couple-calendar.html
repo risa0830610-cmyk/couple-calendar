@@ -5,8 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="theme-color" content="#ffffff">
+<meta name="theme-color" content="#6C63FF">
 <title>ふたりのカレンダー</title>
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ふたりの">
 <style>
   :root {
     --me: #6C63FF; --me-light: #EEEDfe;
@@ -368,6 +372,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getDatabase, ref, set, push, remove, onValue, off } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getMessaging, getToken, onMessage } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging.js";
 
 // ── Firebase 初期化 ──
 const firebaseConfig = {
@@ -382,6 +387,10 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
+const messaging = getMessaging(app);
+
+// ── VAPID KEY ──
+const VAPID_KEY = 'BNcwtpM0aPT0hfmLihgsftZVQO6zyg6OmxVPOUpvgLrqOeubOfuZqlUzRCXSFoyGEXdATw89AC9cRbebbk_EijE';
 
 // ── STATE ──
 let currentUser = null;       // Firebase Userオブジェクト
@@ -429,6 +438,7 @@ onAuthStateChanged(auth, async user => {
     listenEvents();
     selectedDate = formatDate(new Date());
     renderCalendar();
+    initFCM();
   } else {
     currentUser = null;
     myRole = null;
@@ -529,6 +539,7 @@ function listenEvents() {
     });
     renderCalendar();
     if (selectedDate) renderEventList(selectedDate);
+    scheduleReminders();
   });
   eventsListener = true;
 }
@@ -950,8 +961,16 @@ window.closeSettings = function() { $('settings-overlay').classList.remove('open
 window.closeSettingsIfBg = function(e) { if(e.target.id==='settings-overlay') closeSettings(); };
 
 // ── NOTIFICATIONS ──
-window.testNotification = function() {
+window.testNotification = async function() {
   showToast('テスト通知', '「テスト予定」は10分後に始まります', { who: 'shared' });
+  if (Notification.permission === 'granted') {
+    const reg = await navigator.serviceWorker.ready;
+    reg.showNotification('📅 ふたりのカレンダー', {
+      body: '「テスト予定」は10分後に始まります',
+      icon: '/couple-calendar/icon-192.png',
+      tag: 'test-notif',
+    });
+  }
 };
 
 function showToast(title, body, ev) {
@@ -964,6 +983,81 @@ function showToast(title, body, ev) {
   const toast = $('toast');
   toast.classList.add('show');
   setTimeout(() => toast.classList.remove('show'), 4000);
+}
+
+// ── FCM & NOTIFICATIONS ──
+async function initFCM() {
+  try {
+    // Service Worker 登録
+    const reg = await navigator.serviceWorker.register('./sw.js');
+    console.log('SW registered:', reg.scope);
+
+    // 通知許可をリクエスト
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') {
+      console.log('通知が許可されていません');
+      return;
+    }
+
+    // FCMトークン取得
+    const token = await getToken(messaging, {
+      vapidKey: VAPID_KEY,
+      serviceWorkerRegistration: reg,
+    });
+
+    if (token && currentUser) {
+      // トークンをDBに保存（通知送信時に使用）
+      await set(ref(db, `users/${currentUser.uid}/fcmToken`), token);
+      console.log('FCM token saved');
+    }
+
+    // フォアグラウンド通知（アプリが開いている時）
+    onMessage(messaging, payload => {
+      const { title, body } = payload.notification || {};
+      showToast(title || 'ふたりのカレンダー', body || '', { who: 'shared' });
+    });
+
+    // 予定のリマインダーをスケジュール
+    scheduleReminders();
+
+  } catch (err) {
+    console.error('FCM初期化エラー:', err);
+  }
+}
+
+// 予定リマインダーをsetTimeoutでスケジュール（アプリ起動中）
+let reminderTimers = [];
+function scheduleReminders() {
+  reminderTimers.forEach(t => clearTimeout(t));
+  reminderTimers = [];
+  const now = Date.now();
+  Object.values(events).forEach(ev => {
+    if (!ev.time || !ev.notifs || ev.notifs.length === 0) return;
+    const evMs = new Date(ev.date + 'T' + ev.time).getTime();
+    ev.notifs.forEach(minBefore => {
+      const triggerMs = evMs - minBefore * 60000;
+      const delay = triggerMs - now;
+      if (delay > 0 && delay < 86400000) { // 24時間以内
+        const label = minBefore >= 1440 ? (minBefore/1440)+'日前'
+          : minBefore >= 60 ? (minBefore/60)+'時間前' : minBefore+'分前';
+        const t = setTimeout(() => {
+          // フォアグラウンド時はトースト
+          showToast(ev.title, `${label}に始まります（${ev.time}）`, ev);
+          // バックグラウンド通知はSWが担当
+          if (Notification.permission === 'granted') {
+            navigator.serviceWorker.ready.then(reg => {
+              reg.showNotification('📅 ' + ev.title, {
+                body: `${label}に始まります（${ev.time}）`,
+                icon: '/couple-calendar/icon-192.png',
+                tag: ev.date + ev.time + minBefore,
+              });
+            });
+          }
+        }, delay);
+        reminderTimers.push(t);
+      }
+    });
+  });
 }
 
 // ── UTILS ──
