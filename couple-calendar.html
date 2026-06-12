@@ -63,19 +63,49 @@
   .weekday { font-size: 11px; font-weight: 600; color: var(--text-muted); padding: 4px 0; }
   .weekday:first-child { color: #FF6B8A; }
   .weekday:last-child { color: var(--me); }
-  .calendar-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; }
-  .day-cell { min-height: 88px; background: var(--surface); border-radius: 10px; padding: 4px 3px 5px; cursor: pointer; transition: background .15s; display: flex; flex-direction: column; align-items: center; gap: 2px; overflow: hidden; position: relative; }
+  /* ── WEEK ROW ── */
+  .week-row { display: grid; grid-template-columns: repeat(7,1fr); gap: 3px; margin-bottom: 3px; position: relative; }
+  .day-cell { min-height: 88px; background: var(--surface); border-radius: 10px; padding: 4px 3px 14px; cursor: pointer; transition: background .15s; display: flex; flex-direction: column; align-items: center; gap: 0; overflow: visible; position: relative; }
   .day-cell:active { background: #f0eeff; }
   .day-cell.other-month { background: transparent; opacity: .35; }
   .day-cell.today .day-num { background: var(--me); color: white; border-radius: 50%; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
   .day-cell.selected { background: #EEEDfe; }
-  .day-num { font-size: 13px; font-weight: 500; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; }
+  .day-num { font-size: 13px; font-weight: 500; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
   .sunday .day-num { color: #FF6B8A; }
   .saturday .day-num { color: var(--me); }
-  .event-block { width: 100%; display: flex; flex-direction: column; gap: 1px; margin-top: 1px; }
+
+  /* 単日イベント（セル内） */
+  .event-block { width: 100%; display: flex; flex-direction: column; gap: 1px; margin-top: 2px; }
   .event-bar-line { height: 3px; border-radius: 2px; width: 100%; }
   .event-label { font-size: 9px; font-weight: 500; width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0 2px; line-height: 1.4; }
   .more-badge { position: absolute; bottom: 3px; right: 4px; font-size: 9px; font-weight: 700; color: var(--text-muted); line-height: 1; }
+
+  /* 複数日イベント（行に絶対配置） */
+  .multi-bar-wrap { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; }
+  .multi-bar {
+    position: absolute;
+    height: 14px;
+    border-radius: 7px;
+    display: flex; align-items: center;
+    padding: 0 6px;
+    overflow: hidden;
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: pointer;
+    opacity: 0.92;
+  }
+  .multi-bar-label {
+    font-size: 9px;
+    font-weight: 600;
+    color: white;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .multi-bar.start { border-radius: 7px 0 0 7px; }
+  .multi-bar.end   { border-radius: 0 7px 7px 0; }
+  .multi-bar.mid   { border-radius: 0; }
+  .multi-bar.solo  { border-radius: 7px; }
 
   /* ── EVENT LIST ── */
   .event-list-section { padding: 0 16px calc(100px + var(--safe-bottom)); }
@@ -223,7 +253,7 @@
     <div class="weekday">日</div><div class="weekday">月</div><div class="weekday">火</div>
     <div class="weekday">水</div><div class="weekday">木</div><div class="weekday">金</div><div class="weekday">土</div>
   </div>
-  <div class="calendar-grid" id="calendar-grid"></div>
+  <div id="calendar-grid"></div>
 </div>
 
 <!-- EVENT LIST -->
@@ -581,46 +611,159 @@ function renderCalendar() {
   if (rem < 7) for (let i = 1; i <= rem; i++)
     cells.push({ day: i, m: month+1, y: month===11?year+1:year, other: true });
 
-  cells.forEach(({ day, m, y, other }) => {
-    const cell = document.createElement('div');
-    const dateStr = `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-    const isToday = !other && day===today.getDate() && m===today.getMonth() && y===today.getFullYear();
-    const dow = new Date(y, m, day).getDay();
-    cell.className = 'day-cell' + (other?' other-month':'') + (isToday?' today':'') + (selectedDate===dateStr?' selected':'') + (dow===0?' sunday':dow===6?' saturday':'');
+  // 週ごとに分割
+  const weeks = [];
+  for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i+7));
 
-    const numEl = document.createElement('div');
-    numEl.className = 'day-num';
-    numEl.textContent = day;
-    cell.appendChild(numEl);
+  // 複数日イベントと単日イベントを分離
+  const multiEvents = Object.entries(events).filter(([,e]) => e.dateEnd && e.dateEnd > e.date);
+  const singleEvents = Object.entries(events).filter(([,e]) => !e.dateEnd || e.dateEnd === e.date);
 
-    const dayEvents = Object.entries(events)
-      .filter(([,e]) => dateStr >= e.date && dateStr <= (e.dateEnd || e.date))
-      .sort((a,b) => (a[1].time||'').localeCompare(b[1].time||''));
+  weeks.forEach(week => {
+    const weekDates = week.map(({day,m,y}) =>
+      `${y}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`);
+    const weekStart = weekDates[0];
+    const weekEnd = weekDates[6];
 
-    dayEvents.slice(0,4).forEach(([,ev]) => {
-      const block = document.createElement('div');
-      block.className = 'event-block';
-      const bar = document.createElement('div');
-      bar.className = 'event-bar-line';
-      bar.style.background = colorFor(ev);
-      const lbl = document.createElement('div');
-      lbl.className = 'event-label';
-      lbl.style.color = colorFor(ev);
-      lbl.textContent = (ev.time ? ev.time+' ' : '') + ev.title;
-      block.appendChild(bar);
-      block.appendChild(lbl);
-      cell.appendChild(block);
+    // ── 行コンテナ ──
+    const row = document.createElement('div');
+    row.className = 'week-row';
+
+    // セルを生成
+    week.forEach(({ day, m, y, other }, colIdx) => {
+      const cell = document.createElement('div');
+      const dateStr = weekDates[colIdx];
+      const isToday = !other && day===today.getDate() && m===today.getMonth() && y===today.getFullYear();
+      const dow = new Date(y, m, day).getDay();
+      cell.className = 'day-cell'+(other?' other-month':'')+(isToday?' today':'')+(selectedDate===dateStr?' selected':'')+(dow===0?' sunday':dow===6?' saturday':'');
+      cell.dataset.date = dateStr;
+
+      const numEl = document.createElement('div');
+      numEl.className = 'day-num';
+      numEl.textContent = day;
+      cell.appendChild(numEl);
+
+      // 単日イベント（この日に一致するもの）
+      const daySingles = singleEvents
+        .filter(([,e]) => e.date === dateStr)
+        .sort((a,b) => (a[1].time||'').localeCompare(b[1].time||''));
+
+      // 複数日イベントのうちこの日にかかるものをカウント（バッジ用）
+      const dayMultiCount = multiEvents.filter(([,e]) => dateStr >= e.date && dateStr <= (e.dateEnd||e.date)).length;
+      const totalCount = daySingles.length + dayMultiCount;
+
+      // 単日は最大4件（複数日の分で押し出される考慮は簡易的にスロット数で）
+      const slotsUsed = dayMultiCount; // 複数日が使うスロット数（簡易）
+      const maxSingle = Math.max(0, 4 - slotsUsed);
+
+      daySingles.slice(0, maxSingle).forEach(([,ev]) => {
+        const block = document.createElement('div');
+        block.className = 'event-block';
+        const bar = document.createElement('div');
+        bar.className = 'event-bar-line';
+        bar.style.background = colorFor(ev);
+        const lbl = document.createElement('div');
+        lbl.className = 'event-label';
+        lbl.style.color = colorFor(ev);
+        lbl.textContent = (ev.time ? ev.time+' ' : '') + ev.title;
+        block.appendChild(bar);
+        block.appendChild(lbl);
+        cell.appendChild(block);
+      });
+
+      if (totalCount > 4) {
+        const more = document.createElement('div');
+        more.className = 'more-badge';
+        more.textContent = `+${totalCount - 4}`;
+        cell.appendChild(more);
+      }
+
+      cell.onclick = () => selectDate(dateStr);
+      row.appendChild(cell);
     });
-    if (dayEvents.length > 4) {
-      const more = document.createElement('div');
-      more.className = 'more-badge';
-      more.textContent = `+${dayEvents.length - 4}`;
-      cell.appendChild(more);
-    }
 
-    cell.onclick = () => selectDate(dateStr);
-    grid.appendChild(cell);
+    grid.appendChild(row);
+
+    // ── 複数日バーをこの週に描画 ──
+    // この週にかかる複数日イベントを取得
+    const weekMulti = multiEvents.filter(([,e]) =>
+      e.date <= weekEnd && (e.dateEnd||e.date) >= weekStart
+    ).sort((a,b) => a[1].date.localeCompare(b[1].date));
+
+    if (weekMulti.length === 0) return;
+
+    // バー描画は requestAnimationFrame で行う（セルのレイアウト確定後）
+    requestAnimationFrame(() => {
+      const rowRect = row.getBoundingClientRect();
+      if (rowRect.width === 0) return;
+
+      // スロット管理（バーが重ならないように）
+      const slots = []; // slots[slotIdx] = 使用中の最終col
+
+      weekMulti.forEach(([evId, ev]) => {
+        // この週でのバーの開始・終了col
+        const barStart = Math.max(weekDates.indexOf(ev.date), 0);
+        const barEndDate = ev.dateEnd || ev.date;
+        const endIdx = weekDates.indexOf(barEndDate);
+        const barEnd = endIdx === -1 ? 6 : endIdx;
+        const actualStart = barStart === -1 ? 0 : barStart;
+
+        // 空きスロットを探す
+        let slot = 0;
+        while (slots[slot] !== undefined && slots[slot] >= actualStart) slot++;
+        slots[slot] = barEnd;
+
+        // セルの位置を取得してバーの座標を計算
+        const cellEls = row.querySelectorAll('.day-cell');
+        const startCell = cellEls[actualStart];
+        const endCell = cellEls[barEnd];
+        if (!startCell || !endCell) return;
+
+        const startRect = startCell.getBoundingClientRect();
+        const endRect = endCell.getBoundingClientRect();
+        const GAP = 3;
+
+        const left = startRect.left - rowRect.left + (actualStart === 0 ? 2 : -GAP/2);
+        const right = rowRect.right - endRect.right + (barEnd === 6 ? 2 : -GAP/2);
+        // バーはday-numの下、slot番目の位置に
+        const DAY_NUM_H = 28; // day-num高さ分
+        const BAR_H = 14;
+        const BAR_GAP = 2;
+        const top = DAY_NUM_H + slot * (BAR_H + BAR_GAP);
+
+        const bar = document.createElement('div');
+        bar.className = 'multi-bar';
+        // 形状
+        const isStart = ev.date >= weekStart;
+        const isEnd = (ev.dateEnd||ev.date) <= weekEnd;
+        if (isStart && isEnd) bar.classList.add('solo');
+        else if (isStart) bar.classList.add('start');
+        else if (isEnd) bar.classList.add('end');
+        else bar.classList.add('mid');
+
+        bar.style.cssText = `left:${left}px; right:${right}px; top:${top}px; background:${colorForId(evId)};`;
+
+        // ラベルは開始セル（またはこの週の左端）にのみ表示
+        if (isStart || actualStart === 0) {
+          const lbl = document.createElement('span');
+          lbl.className = 'multi-bar-label';
+          lbl.textContent = (ev.time ? ev.time+' ' : '') + ev.title;
+          bar.appendChild(lbl);
+        }
+
+        bar.onclick = (e) => { e.stopPropagation(); selectDate(ev.date); };
+        row.appendChild(bar);
+      });
+    });
   });
+}
+
+function colorForId(evId) {
+  const ev = events[evId];
+  if (!ev) return 'var(--me)';
+  if (ev.who === 'shared') return '#43C59E';
+  if (ev.who === partnerRole) return '#FF6B8A';
+  return '#6C63FF';
 }
 
 function selectDate(dateStr) {
